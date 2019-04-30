@@ -4,7 +4,9 @@
     android:versionCode="1"
     android:versionName="1.0" >
 
-    <application
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.READ_PHONE_STATE"/>
+    <!---<application
         android:allowBackup="true"
         android:icon="@drawable/ic_launcher"
         android:label="@string/app_name"
@@ -22,6 +24,6 @@
         <provider android:name="edu.buffalo.cse.cse486586.simpledynamo.SimpleDynamoProvider"
             android:authorities="edu.buffalo.cse.cse486586.simpledynamo.provider" />
         
-    </application>
+    </application>-->
 
 </manifest>

@@ -14,8 +14,8 @@ public class SimpleDynamoActivity extends Activity {
 		super.onCreate(savedInstanceState);
 		setContentView(R.layout.activity_simple_dynamo);
     
-		TextView tv = (TextView) findViewById(R.id.textView1);
-        tv.setMovementMethod(new ScrollingMovementMethod());
+		//TextView tv = (TextView) findViewById(R.id.textView1);
+        //tv.setMovementMethod(new ScrollingMovementMethod());
 	}
 
 	@Override
