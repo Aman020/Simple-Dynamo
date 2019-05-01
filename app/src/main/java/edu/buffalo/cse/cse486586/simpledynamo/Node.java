@@ -14,7 +14,7 @@ public class Node{
         this.portId = portId;
         this.nodeId = String.valueOf(Integer.parseInt(portId)/2);
         try {
-            this.hashedId = new Helper().genHash(portId);
+            this.hashedId = new Helper().genHash(nodeId);
         }catch (Exception ex){
             Log.e("Node creation"," Something went wrong while creating a node");
             ex.printStackTrace();

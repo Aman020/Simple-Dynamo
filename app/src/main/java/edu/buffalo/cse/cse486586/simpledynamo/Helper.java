@@ -10,7 +10,7 @@ public class Helper {
         byte[] sha1Hash = sha1.digest(input.getBytes());
         Formatter formatter = new Formatter();
         for (byte b : sha1Hash) {
-            // formatter.format("%02x", b);
+             formatter.format("%02x", b);
         }
         return formatter.toString();
     }
