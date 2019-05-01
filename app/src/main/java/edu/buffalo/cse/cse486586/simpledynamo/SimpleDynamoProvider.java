@@ -27,25 +27,6 @@ import android.util.Log;
 
 
 
-
-  class Node{
-	String portId;
-	String hashedId;
-	String nodeId;
-	Node(String portId ){
-		this.portId = portId;
-		this.nodeId = String.valueOf(Integer.parseInt(portId)/2);
-		try {
-			this.hashedId = new Helper().genHash(portId);
-		}catch (Exception ex){
-			Log.e("Node creation"," Something went wrong while creating a node");
-			ex.printStackTrace();
-		}
-	}
-
-
-}
-
 public class SimpleDynamoProvider extends ContentProvider {
 
 	Helper helper = new Helper();
@@ -86,7 +67,7 @@ public class SimpleDynamoProvider extends ContentProvider {
 				outputStream.close();
 
 			} else {
-
+					String sendKeyToPort = findCorrectPort(hashedKey);
 
 				}
 
@@ -111,9 +92,15 @@ public class SimpleDynamoProvider extends ContentProvider {
 			serverSocket = new ServerSocket(SERVER_PORT);
 			TelephonyManager tel = (TelephonyManager) this.getContext().getSystemService(Context.TELEPHONY_SERVICE);
 			final String processId = tel.getLine1Number().substring(tel.getLine1Number().length() - 4);
-			//String myPortId =String.valueOf (Integer.parseInt(processId)*2);
-
-
+			String myPortId =String.valueOf (Integer.parseInt(processId)*2);
+			joinedNodes.add(new Node("11108"));
+			joinedNodes.add(new Node("11112"));
+			joinedNodes.add(new Node("11116"));
+			joinedNodes.add(new Node("11120"));
+			joinedNodes.add(new Node("11124"));
+			Collections.sort(joinedNodes, new NodeCompare());
+			new ServerTask().executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR, serverSocket);
+			Log.e("*********","****MY PORT ID*****----"+ Integer.parseInt(processId)*2);
 
 		}
 		catch(Exception ex)
@@ -208,6 +195,14 @@ public class SimpleDynamoProvider extends ContentProvider {
 		}
 		return false;
 	}
+
+
+	private String findCorrectPort(String hashedKey)
+	{
+		return null;
+
+	}
+
 
 
 
