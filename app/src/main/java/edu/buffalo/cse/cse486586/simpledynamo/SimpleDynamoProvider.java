@@ -8,9 +8,12 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.Formatter;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 import android.content.ContentProvider;
@@ -23,15 +26,35 @@ import android.telephony.TelephonyManager;
 import android.util.Log;
 
 
+
+
+  class Node{
+	String portId;
+	String hashedId;
+	String nodeId;
+	Node(String portId ){
+		this.portId = portId;
+		this.nodeId = String.valueOf(Integer.parseInt(portId)/2);
+		try {
+			this.hashedId = new Helper().genHash(portId);
+		}catch (Exception ex){
+			Log.e("Node creation"," Something went wrong while creating a node");
+			ex.printStackTrace();
+		}
+	}
+
+
+}
+
 public class SimpleDynamoProvider extends ContentProvider {
 
-
-	private static String [] joinedNodes = new String[]{"11108","11112","11116","11120","11124"};
+	Helper helper = new Helper();
+	//private static String [] joinedNodes = new String[]{"11108","11112","11116","11120","11124"};
 	private static  final Uri CONTENT_URI = Uri.parse("content://edu.buffalo.cse.cse486586.simpledht.provider");
 	private static String myNode ;
 	private static String myNodeHash;
 	private final static int SERVER_PORT = 10000;
-	private Map<String, String> nodesMap = new HashMap<String,String>();
+	private static List<Node> joinedNodes;
 
 
 	@Override
@@ -52,7 +75,7 @@ public class SimpleDynamoProvider extends ContentProvider {
 			Log.e("In Insert", "Calling insert");
 			String fileName = values.getAsString("key");
 			String value = values.getAsString("value");
-			String hashedKey = genHash(fileName);
+			String hashedKey = helper.genHash(fileName);
 			Log.e("INSERT", "KEY TO INSERT" + fileName);
 			Log.e("INSERT", "VALUE TO INSERT" + value);
 			if (IsCorrectNode(hashedKey)) {
@@ -89,13 +112,6 @@ public class SimpleDynamoProvider extends ContentProvider {
 			TelephonyManager tel = (TelephonyManager) this.getContext().getSystemService(Context.TELEPHONY_SERVICE);
 			final String processId = tel.getLine1Number().substring(tel.getLine1Number().length() - 4);
 			//String myPortId =String.valueOf (Integer.parseInt(processId)*2);
-
-			nodesMap.put("11108", genHash("11108"));
-			nodesMap.put("11112", genHash("11112"));
-			nodesMap.put("11116",  genHash("11116"));
-			nodesMap.put("11120",genHash("11120"));
-			nodesMap.put("11124", genHash("11124"));
-
 
 
 
@@ -174,22 +190,13 @@ public class SimpleDynamoProvider extends ContentProvider {
 		return 0;
 	}
 
-    private String genHash(String input) throws NoSuchAlgorithmException {
-        MessageDigest sha1 = MessageDigest.getInstance("SHA-1");
-        byte[] sha1Hash = sha1.digest(input.getBytes());
-        Formatter formatter = new Formatter();
-        for (byte b : sha1Hash) {
-           // formatter.format("%02x", b);
-        }
-        return formatter.toString();
-    }
 
 
 
 	private boolean IsCorrectNode(String hashedKey)
 	{
 		try {
-			if( hashedKey.compareTo(genHash(myNode)) < 0 ){
+			if( hashedKey.compareTo(helper.genHash(myNode)) < 0 ){
 				return true;
 			}
 			return false;
@@ -201,6 +208,7 @@ public class SimpleDynamoProvider extends ContentProvider {
 		}
 		return false;
 	}
+
 
 
 }
