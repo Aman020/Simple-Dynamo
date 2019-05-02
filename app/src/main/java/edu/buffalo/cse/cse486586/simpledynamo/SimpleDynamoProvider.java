@@ -45,10 +45,11 @@ public class SimpleDynamoProvider extends ContentProvider {
 	private static String myHashedPort;
 	private final static int SERVER_PORT = 10000;
 	private static List<Node> joinedNodes;
-	private static MatrixCursor singleKeyResult;
 	private static MatrixCursor starKeyResult;
 	private static int startQueryCount =1;
     private static HashMap<String, MatrixCursor> cursorLocks = new HashMap<String, MatrixCursor>();
+    private static HashMap<String,String> failedKeysMap = new HashMap<String, String>();
+    private static boolean isFailedNode = false;
 	@Override
 	public int delete(Uri uri, String selection, String[] selectionArgs) {
 		// TODO Auto-generated method stub
@@ -61,29 +62,7 @@ public class SimpleDynamoProvider extends ContentProvider {
                 Log.e("No of files", "" + files.length);
                 for (File file : files) {
                     file.delete();
-
                 }
-
-//            }// The below code is a part in plagiarism. Please do not copy.
-//            else{
-//                boolean isFileAvailable = false;
-//                for (File file : files){
-//                    if(file.getName().equals(selection))
-//                    {
-//                        isFileAvailable = true;
-//                        file.delete();
-//                        Log.e("In delete at "+ myPort,"****FILE DELETED****");
-//                        break;
-//                    }
-//                }
-//                if( !isFileAvailable)
-//                {
-//
-//                }
-//            }
-
-
-
         }catch(Exception ex)
         {
             ex.printStackTrace();
@@ -98,7 +77,6 @@ public class SimpleDynamoProvider extends ContentProvider {
 		// TODO Auto-generated method stub
 		return null;
 	}
-
 
 	@Override
 	public boolean onCreate() {
@@ -120,16 +98,25 @@ public class SimpleDynamoProvider extends ContentProvider {
 			Collections.sort(joinedNodes, new NodeCompare());
 			Log.e("On create", "Sorted list");
 			StringBuilder sb = new StringBuilder();
-
 			for(Node node: joinedNodes)
 			{
 				sb.append(node.portId +"--->");
-
 			}
 			Log.e("Sorted List", sb.toString());
 			new ServerTask().executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR, serverSocket);
 			Log.e("*********","****MY PORT ID*****----"+ Integer.parseInt(processId)*2);
-
+			for(Node node : joinedNodes)
+            {
+                if( node.portId.equals(myPort))
+                {
+                    continue;
+                }
+                else
+                {
+                    Log.e("On Create-", "Give me keys-" + node.portId);
+                    new ClientTask().executeOnExecutor(AsyncTask.SERIAL_EXECUTOR, "Give Keys:" + "not required" +":" + myPort + ":" + node.portId);
+                }
+            }
 		}
 		catch(Exception ex)
 		{
@@ -143,19 +130,36 @@ public class SimpleDynamoProvider extends ContentProvider {
 
 		@Override
 		protected Void doInBackground(String... strings) {
-			try {
-				String message = strings[0];
-				String []messageTokens = strings[0].split(":");
+
+            String message = strings[0];
+            String []messageTokens = strings[0].split(":");
+            String key = messageTokens[1];
+            String value = messageTokens[2];
+
+            try {
 				String toSendPort= messageTokens[3];
 				Socket socket = new Socket(InetAddress.getByAddress(new byte[]{10, 0, 2, 2}),
 						Integer.parseInt(toSendPort));
+                socket.setSoTimeout(2000);
 				DataOutputStream outputStream = new DataOutputStream(socket.getOutputStream());
 				outputStream.writeUTF(message);
 				outputStream.flush();
+				DataInputStream inputStream = new DataInputStream((socket.getInputStream()));
+				inputStream.readUTF();
+
 			}catch(Exception ex)
 			{
-				Log.e("In client", " Something went wrong in client Async Task");
-				ex.printStackTrace();
+                Log.e("In insert","****EXCEPTION OCCURED***");
+                isFailedNode = true;
+                if(messageTokens[0].equals("Insert")) {
+                    failedKeysMap.put(key, value);
+                    Log.e("Hashmap size at-" + myPort,failedKeysMap.size() +"");
+                }
+                else {
+                    Log.e("Exception operation ***", messageTokens[0]);
+                    //Log.e("In client", " Something went wrong in client Async Task");
+                  //  ex.printStackTrace();
+                }
 			}
 			return null;
 		}
@@ -168,13 +172,13 @@ public class SimpleDynamoProvider extends ContentProvider {
 			{
 
 				while (true) {
-
 					Socket socket = serverSockets[0].accept();
 					DataInputStream inputStream = new DataInputStream(socket.getInputStream());
 					String messageFromClient = inputStream.readUTF();
+					DataOutputStream outputStream = new DataOutputStream(socket.getOutputStream());
+					outputStream.writeUTF("Acknowledge");
 					String[] messageFromClientTokens = messageFromClient.split(":");
 					String operation = messageFromClientTokens[0];
-
 					if( operation.equals("Insert")){
 						Log.i("SERVER-" + myPort,"Replication of key received-"+messageFromClientTokens[1] );
 						String key = messageFromClientTokens[1];
@@ -200,9 +204,8 @@ public class SimpleDynamoProvider extends ContentProvider {
                     else if (operation.equals("Retrieve")){
                         String starQueryResquestedPort = messageFromClientTokens[1];
                         SendMyQueryResult(starQueryResquestedPort);
-
-
                     }
+
                     else if(operation.equals("Retrieve Result")){
                         startQueryCount ++;
                         Log.e("At server-"+ myPort, "Key received from" + messageFromClientTokens[2]);
@@ -224,7 +227,28 @@ public class SimpleDynamoProvider extends ContentProvider {
                                 starKeyResult.notify(); }
                         }
 
+                    }
+                    else if ( operation.equals("Give Keys")){
+                        String toSendKeys = messageFromClientTokens[2];
+                        SendFailedKeys(toSendKeys);
+                    }
+                    else if (operation.equals("Get Keys Result")){
+                        String allKeyValuePairs = messageFromClientTokens[1];
+                       if( allKeyValuePairs.length() !=0) {
+                            String[] allKeyValuePairsTokens = allKeyValuePairs.split("@@");
+                            for (String keyValue : allKeyValuePairsTokens) {
+                                String[] keyAndValue = keyValue.split("-");
+                                Insert(keyAndValue[0], keyAndValue[1]);
+                            }
+                           Log.e("Got keys from-", messageFromClientTokens[2] + "Total keys  --" +allKeyValuePairsTokens.length +"");
+
+                       }
+                        else
+                        {
+                            Log.e("Got keys from-", messageFromClientTokens[2] + "Total keys  --" +"0");
                         }
+
+                    }
 				}
 			}
 			catch(Exception ex)
@@ -236,6 +260,18 @@ public class SimpleDynamoProvider extends ContentProvider {
 		}
 	}
 
+	private void SendFailedKeys(String toSendKeysPort)
+    {
+        StringBuilder sb = new StringBuilder();
+        for (Map.Entry<String,String> entry :failedKeysMap.entrySet())
+        {
+
+            sb.append(entry.getKey() + "-" + entry.getValue() +"@@");
+
+        }
+        new ClientTask().executeOnExecutor(AsyncTask.SERIAL_EXECUTOR, "Get Keys Result:" + sb.toString() +":" + myPort + ":" + toSendKeysPort);
+        failedKeysMap.clear();
+    }
 	private void SendMyQueryResult(String starQueryResquestedPort)
     {
         Log.e("At port-" + myPort, "Retrieving my keys");
@@ -257,7 +293,7 @@ public class SimpleDynamoProvider extends ContentProvider {
                 while ((res = inputstream.read()) != -1) {
                     sb.append((char) res);
                 }
-                singleKeyResult = new MatrixCursor(new String[]{"key","value"});
+               MatrixCursor singleKeyResult = new MatrixCursor(new String[]{"key","value"});
                 singleKeyResult.addRow(new String[]{selection, sb.toString()});
                 Log.e("At port-" + myPort,"Found key -" + selection +"-" + sb.toString());
                 new ClientTask().executeOnExecutor(AsyncTask.SERIAL_EXECUTOR, "Found Key:" + selection +":" + sb.toString() +":" + whoWantsKey + ":" + myPort);
@@ -270,30 +306,32 @@ public class SimpleDynamoProvider extends ContentProvider {
     }
     @Override
     public Uri insert(Uri uri, ContentValues values) {
+        String fileName = values.getAsString("key");
+        String value = values.getAsString("value");
+
         try {
             Log.e("In Insert", "Calling insert");
-            String fileName = values.getAsString("key");
-            String value = values.getAsString("value");
             String hashedKey = helper.genHash(fileName);
             Log.e("INSERT", "KEY TO INSERT " + fileName);
             List<String> keySendToPort = findCorrectAndReplicatedPort(hashedKey);
-            Log.e("Insert key in ", keySendToPort.get(0) +"-" +  keySendToPort.get(1) + keySendToPort.get(2));
-                for(String port: keySendToPort){
+            Log.e("Insert key in ", keySendToPort.get(0) + "-" + keySendToPort.get(1) + "-" + keySendToPort.get(2));
+            for (String port : keySendToPort) {
+                try {
                     Log.e("Replicating key at" + port, fileName);
-                    if(port.equals(myPort))
-                    {
-                        Log.e("Inserting key at " +myPort ,fileName);
-                        Insert(fileName,value);
-                    }
-                    else
-                    new ClientTask().executeOnExecutor(AsyncTask.SERIAL_EXECUTOR, "Insert:"+ fileName + ":" +value + ":" + port);
+                    if (port.equals(myPort)) {
+                        Log.e("Inserting key at " + myPort, fileName);
+                        Insert(fileName, value);
+                    } else
+                        new ClientTask().executeOnExecutor(AsyncTask.SERIAL_EXECUTOR, "Insert:" + fileName + ":" + value + ":" + port);
+                } catch (Exception ex) {
+                     ex.printStackTrace();
+                    Log.e("In insert", "Something went wrong");
                 }
-        }
-        catch(Exception ex)
-        {
+            }
+        }catch(Exception ex){
             ex.printStackTrace();
-            Log.e("In insert","Something went wrong");
         }
+
         // TODO Auto-generated method stub
         return null;
     }
@@ -458,7 +496,6 @@ public class SimpleDynamoProvider extends ContentProvider {
 		int index =-1;
 		for (Node node :joinedNodes)
 		{
-			Log.e("Inside for loop", node.portId);
 			if( hashedKey.compareTo(node.hashedId) <0) {
 				index = joinedNodes.indexOf(node);
 				Log.e("Index value",index + "");
