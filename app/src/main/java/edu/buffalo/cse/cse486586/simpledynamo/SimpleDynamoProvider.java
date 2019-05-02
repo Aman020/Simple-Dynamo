@@ -39,16 +39,58 @@ public class SimpleDynamoProvider extends ContentProvider {
 
 	Helper helper = new Helper();
 	//private static String [] joinedNodes = new String[]{"11108","11112","11116","11120","11124"};
-	private static  final Uri CONTENT_URI = Uri.parse("content://edu.buffalo.cse.cse486586.simpledht.provider");
+	private static  final Uri CONTENT_URI = Uri.parse("content://edu.buffalo.cse.cse486586.simpledynamo.provider");
+
 	private static String myPort ;
 	private static String myHashedPort;
 	private final static int SERVER_PORT = 10000;
 	private static List<Node> joinedNodes;
-
+	private static MatrixCursor singleKeyResult;
+	private static MatrixCursor starKeyResult;
+	private static int startQueryCount =1;
+    private static HashMap<String, MatrixCursor> cursorLocks = new HashMap<String, MatrixCursor>();
 	@Override
 	public int delete(Uri uri, String selection, String[] selectionArgs) {
 		// TODO Auto-generated method stub
-		return 0;
+        try {
+
+            File filesDirectory = getContext().getFilesDir();
+            File[] files = filesDirectory.listFiles();
+
+           // if (selection.equals("@")|| selection.equals("*")) {
+                Log.e("No of files", "" + files.length);
+                for (File file : files) {
+                    file.delete();
+
+                }
+
+//            }// The below code is a part in plagiarism. Please do not copy.
+//            else{
+//                boolean isFileAvailable = false;
+//                for (File file : files){
+//                    if(file.getName().equals(selection))
+//                    {
+//                        isFileAvailable = true;
+//                        file.delete();
+//                        Log.e("In delete at "+ myPort,"****FILE DELETED****");
+//                        break;
+//                    }
+//                }
+//                if( !isFileAvailable)
+//                {
+//
+//                }
+//            }
+
+
+
+        }catch(Exception ex)
+        {
+            ex.printStackTrace();
+        }
+
+        // TODO Auto-generated method stub
+        return 0;
 	}
 
 	@Override
@@ -139,6 +181,50 @@ public class SimpleDynamoProvider extends ContentProvider {
 						String value = messageFromClientTokens[2];
 						Insert(key,value);
 					}
+					else if (operation.equals("Check Key")){
+                        String whoWantsKey = messageFromClientTokens[2];
+                        Log.e("Inside server- " + myPort, "Check key requested by" + whoWantsKey );
+                        ReturnSingleKey(messageFromClientTokens[1], whoWantsKey);
+
+                    }
+                    else if (operation.equals("Found Key")){
+                        MatrixCursor cursor = cursorLocks.get(messageFromClientTokens[1]);
+                        cursor.addRow( new String[]{messageFromClientTokens[1],messageFromClientTokens[2]});
+
+                        synchronized (cursor)
+                        {
+                            cursor.notify();
+                        }
+                        Log.e("Inside server -"+ myPort, "Key Received-" +messageFromClientTokens[1] );
+                    }
+                    else if (operation.equals("Retrieve")){
+                        String starQueryResquestedPort = messageFromClientTokens[1];
+                        SendMyQueryResult(starQueryResquestedPort);
+
+
+                    }
+                    else if(operation.equals("Retrieve Result")){
+                        startQueryCount ++;
+                        Log.e("At server-"+ myPort, "Key received from" + messageFromClientTokens[2]);
+                        String allKeyValuePairs = messageFromClientTokens[1];
+                        String[] allKeyValuePairsTokens = allKeyValuePairs.split("@@");
+
+                        int count = 0;
+                        for (String keyValue : allKeyValuePairsTokens) {
+                            String[] keyAndValue = keyValue.split("-");
+                            starKeyResult.addRow(new String[]{keyAndValue[0], keyAndValue[1]});
+                            count++;
+                        }
+                        Log.e("No of keys retreived", String.valueOf(count));
+
+                        if( startQueryCount == 4)
+                        {
+                            Log.e("At server-" + myPort, "Retrieved star result from all the ports");
+                            synchronized (starKeyResult) {
+                                starKeyResult.notify(); }
+                        }
+
+                        }
 				}
 			}
 			catch(Exception ex)
@@ -150,6 +236,38 @@ public class SimpleDynamoProvider extends ContentProvider {
 		}
 	}
 
+	private void SendMyQueryResult(String starQueryResquestedPort)
+    {
+        Log.e("At port-" + myPort, "Retrieving my keys");
+        Cursor cursor = getContext().getContentResolver().query(CONTENT_URI, null, "@", null, null);
+        StringBuilder sb = new StringBuilder();
+        sb.append(KeyValuePairString(cursor));
+        Log.e("My keys", sb.toString());
+        Log.e("Sending my keys to -",starQueryResquestedPort);
+        new ClientTask().executeOnExecutor(AsyncTask.SERIAL_EXECUTOR, "Retrieve Result:" + sb.toString() +":" + myPort + ":" + starQueryResquestedPort);
+
+    }
+    private void ReturnSingleKey(String selection, String whoWantsKey)
+    {
+        try {
+                FileInputStream inputstream = getContext().openFileInput(selection);
+                int res = 0;
+                // creating an object of StringBuilder to efficiently append the data which is read using read() function. Read() function returns a byte and hence we use while loop to read all the bytes. It returns -1 if its empty.
+                StringBuilder sb = new StringBuilder();
+                while ((res = inputstream.read()) != -1) {
+                    sb.append((char) res);
+                }
+                singleKeyResult = new MatrixCursor(new String[]{"key","value"});
+                singleKeyResult.addRow(new String[]{selection, sb.toString()});
+                Log.e("At port-" + myPort,"Found key -" + selection +"-" + sb.toString());
+                new ClientTask().executeOnExecutor(AsyncTask.SERIAL_EXECUTOR, "Found Key:" + selection +":" + sb.toString() +":" + whoWantsKey + ":" + myPort);
+                inputstream.close();
+        }catch (Exception ex)
+        {
+            ex.printStackTrace();
+        }
+
+    }
     @Override
     public Uri insert(Uri uri, ContentValues values) {
         try {
@@ -159,6 +277,7 @@ public class SimpleDynamoProvider extends ContentProvider {
             String hashedKey = helper.genHash(fileName);
             Log.e("INSERT", "KEY TO INSERT " + fileName);
             List<String> keySendToPort = findCorrectAndReplicatedPort(hashedKey);
+            Log.e("Insert key in ", keySendToPort.get(0) +"-" +  keySendToPort.get(1) + keySendToPort.get(2));
                 for(String port: keySendToPort){
                     Log.e("Replicating key at" + port, fileName);
                     if(port.equals(myPort))
@@ -185,7 +304,7 @@ public class SimpleDynamoProvider extends ContentProvider {
 	@Override
 	public Cursor query(Uri uri, String[] projection, String selection,
 			String[] selectionArgs, String sortOrder) {
-		Log.e("Inside","Query-----");
+		Log.e("Inside Query---","Request for key-" + selection);
 		// TODO Auto-generated method stub
 		MatrixCursor cursor;
 		try {
@@ -193,32 +312,50 @@ public class SimpleDynamoProvider extends ContentProvider {
 				return GetLocalKeys();
 			}
 			else if (selection.equals("*")) {
-
+			    Log.e("At port-" + myPort,"* Query request received.Requesting everyone to send their keys ");
+			   return RetrieveAllKeys();
 			}
 			else
-			{
-				Log.e("Inside query"," RUNNING ELSE PART---- SINGLE KEY QUERY");
+            {
 				try {
-					if( IsCorrectNode(helper.genHash(selection))) {
-						Log.e("Inside query"," SNGLE KEY EXISTS HERE");
-						FileInputStream inputstream = getContext().openFileInput(selection);
-						int res = 0;
-						// creating an object of StringBuilder to efficiently append the data which is read using read() function. Read() function returns a byte and hence we use while loop to read all the bytes. It returns -1 if its empty.
-						StringBuilder sb = new StringBuilder();
-						while ((res = inputstream.read()) != -1) {
-							sb.append((char) res);
-						}
-						MatrixCursor matrixCursor = new MatrixCursor(new String[]{"key", "value"});
-						matrixCursor.addRow(new String[]{selection, sb.toString()});
-						inputstream.close();
-						return  matrixCursor;
-					}
-					else
-					{
+				    Log.e("Query for key -", selection );
+                    String path=getContext().getFilesDir().getAbsolutePath()+"/" +selection;
+                    File file = new File ( path );
+                    if(file.exists())
+                    {
+                        Log.e("At port-"+ myPort,"I have the file");
+                        FileInputStream inputstream = getContext().openFileInput(selection);
+                        int res = 0;
+                        // creating an object of StringBuilder to efficiently append the data which is read using read() function. Read() function returns a byte and hence we use while loop to read all the bytes. It returns -1 if its empty.
+                        StringBuilder sb = new StringBuilder();
+                        while ((res = inputstream.read()) != -1) {
+                            sb.append((char) res);
+                        }
+                        MatrixCursor matrixCursor = new MatrixCursor(new String[]{"key", "value"});
+                        matrixCursor.addRow(new String[]{selection, sb.toString()});
+                        Log.e("In query","Returning the key - "+ selection);
+                        inputstream.close();
+                        return  matrixCursor;
 
-
-					}
-
+                    }
+                    else {
+                        Log.e("Single key query", " I dont have the key. Asking other nodes");
+                        MatrixCursor singleKeyResult = new MatrixCursor(new String[]{"key", "value"});
+                        cursorLocks.put(selection,singleKeyResult);
+                        List<String> actualKeyPorts = findCorrectAndReplicatedPort(helper.genHash(selection));
+                        Log.e("Key should be in ports",actualKeyPorts.get(0)+ "-" + actualKeyPorts.get(1) + "-" + actualKeyPorts.get(2));
+                        new ClientTask().executeOnExecutor(AsyncTask.SERIAL_EXECUTOR, "Check Key:" + selection + ":" + myPort + ":" + actualKeyPorts.get(0));
+                        Log.e("In query else", " Running the lock now");
+                        try {
+                            synchronized (singleKeyResult) {
+                                singleKeyResult.wait();
+                            }
+                            Log.e("In query", "Thread has been notified to run");
+                            return singleKeyResult;
+                        } catch (Exception ex) {
+                            ex.printStackTrace();
+                        }
+                    }
 				}catch (Exception ex)
 				{
 					ex.printStackTrace();
@@ -262,8 +399,48 @@ public class SimpleDynamoProvider extends ContentProvider {
 		}
 		return null;
 	}
+    private MatrixCursor RetrieveAllKeys()
+    {
+        try
+        {
+            starKeyResult = new MatrixCursor(new String [] {"key","value"});
+            starKeyResult = GetLocalKeys();
+            for(Node node :joinedNodes) {
+                if( node.portId.equals(myPort))
+                {
+                    continue;
+                }
+                else {
+                    Log.e("RetrieveAllKeys -" , node.portId);
+                    new ClientTask().executeOnExecutor(AsyncTask.SERIAL_EXECUTOR, "Retrieve:" + myPort + ":" + "*" + ":" + node.portId);
+                }
+            }
 
-	private boolean IsCorrectNode(String hashedKey) {
+            synchronized(starKeyResult)
+            { starKeyResult.wait();}
+            Log.e("In query", "Thread has been notified to run");
+            return starKeyResult;
+        }catch (Exception ex)
+        {
+            Log.e("In RetrieveKeys","Something went wrong");
+            ex.printStackTrace();
+        }return null;
+    }
+
+    private String  KeyValuePairString(Cursor cursor)
+    {
+        StringBuilder sb = new StringBuilder();
+        while ((cursor.moveToNext()))
+        {
+            String key = cursor.getString(cursor.getColumnIndex("key"));
+            String value = cursor.getString(cursor.getColumnIndex("value"));
+            sb.append(key +"-" + value +"@@");
+        }
+        return sb.toString();
+
+    }
+
+    private boolean IsCorrectNode(String hashedKey) {
 		try {
 			if( hashedKey.compareTo(myHashedPort) < 0 ){
 				return true;
@@ -295,8 +472,6 @@ public class SimpleDynamoProvider extends ContentProvider {
 			return Arrays.asList(joinedNodes.get(index).portId,joinedNodes.get(index +1).portId, joinedNodes.get(0).portId);
 		else
 			return Arrays.asList(joinedNodes.get(index).portId,joinedNodes.get(index + 1).portId, joinedNodes.get(index +2).portId);
-
-
 	}
 	private void Insert(String key, String value){
 			try{
